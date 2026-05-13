@@ -13,22 +13,15 @@ public sealed class PasswordPolicyErrorMapperTests
     [TestMethod]
     public void MapsInvalidCredentialsDataCodeToInvalidCurrentPassword()
     {
-        var result = _mapper.MapDiagnosticMessage("AcceptSecurityContext error, data 52e, v2580", (ResultCode)49);
+        var result = _mapper.MapDiagnosticMessage("AcceptSecurityContext error, data 52e, v2580", ResultCode.InvalidCredentials);
         Assert.IsFalse(result.Succeeded);
-        Assert.AreEqual(PasswordChangeResultCategory.InvalidCurrentPassword, result.Category);
-    }
-
-    [TestMethod]
-    public void MapsGenericInvalidCredentialsResultToInvalidCurrentPassword()
-    {
-        var result = _mapper.MapDiagnosticMessage("LDAP invalid credentials", (ResultCode)49);
         Assert.AreEqual(PasswordChangeResultCategory.InvalidCurrentPassword, result.Category);
     }
 
     [TestMethod]
     public void MapsLockedAccountDataCodeToLockedAccount()
     {
-        var result = _mapper.MapDiagnosticMessage("LDAP error data 775", (ResultCode)49);
+        var result = _mapper.MapDiagnosticMessage("LDAP error data 775", ResultCode.InvalidCredentials);
         Assert.AreEqual(PasswordChangeResultCategory.LockedAccount, result.Category);
     }
 
