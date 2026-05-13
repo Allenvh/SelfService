@@ -1,0 +1,43 @@
+@page
+@model DirectorySelfService.Pages.IndexModel
+
+@if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
+{
+    <div class="message @(Model.IsSuccess ? "message-success" : "message-error")" role="status">@Model.StatusMessage</div>
+}
+
+<form method="post" autocomplete="off" novalidate>
+    <div asp-validation-summary="ModelOnly"></div>
+
+    <div class="field">
+        <label asp-for="Input.Username"></label>
+        <input asp-for="Input.Username" autocomplete="username" inputmode="email" />
+        <span asp-validation-for="Input.Username"></span>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.CurrentPassword"></label>
+        <input asp-for="Input.CurrentPassword" autocomplete="current-password" />
+        <span asp-validation-for="Input.CurrentPassword"></span>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.NewPassword"></label>
+        <input asp-for="Input.NewPassword" autocomplete="new-password" />
+        <span asp-validation-for="Input.NewPassword"></span>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.ConfirmNewPassword"></label>
+        <input asp-for="Input.ConfirmNewPassword" autocomplete="new-password" />
+        <span asp-validation-for="Input.ConfirmNewPassword"></span>
+    </div>
+
+    @if (Model.CaptchaEnabled)
+    {
+        <p class="help">CAPTCHA validation is enabled for this deployment. Configure the provider integration before production use.</p>
+    }
+
+    <button type="submit">Change password</button>
+    <p class="help">Passwords are submitted only to the directory for this request and are never stored by this application.</p>
+</form>

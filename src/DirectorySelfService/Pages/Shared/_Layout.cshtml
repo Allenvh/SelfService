@@ -1,0 +1,23 @@
+@using DirectorySelfService.Options
+@using Microsoft.Extensions.Options
+@inject IOptions<AppBrandingOptions> Branding
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@Branding.Value.Title</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <main class="shell">
+        <section class="card">
+            <header class="card-header">
+                <p class="eyebrow">Internal self-service</p>
+                <h1>@Branding.Value.Title</h1>
+            </header>
+            @RenderBody()
+        </section>
+    </main>
+</body>
+</html>
