@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Threading.RateLimiting;
 using DirectorySelfService.Middleware;
 using DirectorySelfService.Options;
@@ -53,7 +54,7 @@ builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
 var auditOptions = builder.Configuration.GetSection("Audit").Get<AuditOptions>() ?? new AuditOptions();
 if (OperatingSystem.IsWindows() && auditOptions.EnableWindowsEventLog)
 {
-    builder.Logging.AddEventLog(settings => settings.SourceName = auditOptions.EventLogSource);
+    AddWindowsEventLog(builder.Logging, auditOptions.EventLogSource);
 }
 
 var app = builder.Build();
@@ -72,5 +73,11 @@ app.UseRateLimiter();
 app.MapRazorPages();
 
 app.Run();
+
+[SupportedOSPlatform("windows")]
+static void AddWindowsEventLog(ILoggingBuilder loggingBuilder, string eventLogSource)
+{
+    loggingBuilder.AddEventLog(settings => settings.SourceName = eventLogSource);
+}
 
 public partial class Program;

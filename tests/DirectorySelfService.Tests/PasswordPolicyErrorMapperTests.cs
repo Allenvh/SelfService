@@ -8,12 +8,14 @@ namespace DirectorySelfService.Tests;
 [TestClass]
 public sealed class PasswordPolicyErrorMapperTests
 {
+    private const int InvalidCredentialsLdapResultCode = 49;
+
     private readonly PasswordPolicyErrorMapper _mapper = new();
 
     [TestMethod]
     public void MapsInvalidCredentialsDataCodeToInvalidCurrentPassword()
     {
-        var result = _mapper.MapDiagnosticMessage("AcceptSecurityContext error, data 52e, v2580", ResultCode.InvalidCredentials);
+        var result = _mapper.MapDiagnosticMessage("AcceptSecurityContext error, data 52e, v2580", (ResultCode)InvalidCredentialsLdapResultCode);
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(PasswordChangeResultCategory.InvalidCurrentPassword, result.Category);
     }
@@ -21,7 +23,7 @@ public sealed class PasswordPolicyErrorMapperTests
     [TestMethod]
     public void MapsLockedAccountDataCodeToLockedAccount()
     {
-        var result = _mapper.MapDiagnosticMessage("LDAP error data 775", ResultCode.InvalidCredentials);
+        var result = _mapper.MapDiagnosticMessage("LDAP error data 775", (ResultCode)InvalidCredentialsLdapResultCode);
         Assert.AreEqual(PasswordChangeResultCategory.LockedAccount, result.Category);
     }
 

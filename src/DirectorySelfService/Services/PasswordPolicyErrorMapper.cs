@@ -6,13 +6,17 @@ namespace DirectorySelfService.Services;
 
 public sealed class PasswordPolicyErrorMapper
 {
+    private const int InvalidCredentialsLdapResultCode = 49;
+
     private static readonly Regex DataCodeRegex = new(@"data\s(?<code>[0-9a-fA-F]{3,})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public PasswordChangeResult MapDirectoryException(DirectoryOperationException ex) =>
         MapDiagnosticMessage(ex.Response?.ErrorMessage ?? ex.Message, ex.Response?.ResultCode);
 
     public PasswordChangeResult MapLdapException(LdapException ex) =>
-        MapDiagnosticMessage(ex.ServerErrorMessage ?? ex.Message, ex.ErrorCode == 49 ? ResultCode.InvalidCredentials : null);
+        MapDiagnosticMessage(
+            ex.ServerErrorMessage ?? ex.Message,
+            ex.ErrorCode == InvalidCredentialsLdapResultCode ? (ResultCode)InvalidCredentialsLdapResultCode : null);
 
     public PasswordChangeResult MapDiagnosticMessage(string diagnosticMessage, ResultCode? resultCode = null)
     {
@@ -29,7 +33,7 @@ public sealed class PasswordPolicyErrorMapper
             "533" => PasswordChangeResult.Fail(PasswordChangeResultCategory.DisabledAccount, "This account is disabled. Contact the service desk."),
             "775" => PasswordChangeResult.Fail(PasswordChangeResultCategory.LockedAccount, "This account is locked. Wait and try again, or contact the service desk."),
             _ when IsPasswordRestriction(resultCode, lower) => MapPasswordRestriction(lower),
-            _ when resultCode == ResultCode.InvalidCredentials => PasswordChangeResult.Fail(PasswordChangeResultCategory.InvalidCurrentPassword, "The current password is not correct."),
+            _ when IsInvalidCredentials(resultCode) => PasswordChangeResult.Fail(PasswordChangeResultCategory.InvalidCurrentPassword, "The current password is not correct."),
             _ => PasswordChangeResult.Fail(PasswordChangeResultCategory.UnknownFailure, "The password could not be changed. Verify the information and try again.")
         };
     }
@@ -39,6 +43,9 @@ public sealed class PasswordPolicyErrorMapper
         var match = DataCodeRegex.Match(message);
         return match.Success ? match.Groups["code"].Value.ToLowerInvariant() : string.Empty;
     }
+
+    private static bool IsInvalidCredentials(ResultCode? resultCode) =>
+        (int?)resultCode == InvalidCredentialsLdapResultCode;
 
     private static bool IsPasswordRestriction(ResultCode? resultCode, string message) =>
         resultCode is ResultCode.ConstraintViolation or ResultCode.UnwillingToPerform ||
