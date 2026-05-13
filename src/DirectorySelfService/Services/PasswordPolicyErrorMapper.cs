@@ -12,9 +12,9 @@ public sealed class PasswordPolicyErrorMapper
         MapDiagnosticMessage(ex.Response?.ErrorMessage ?? ex.Message, ex.Response?.ResultCode);
 
     public PasswordChangeResult MapLdapException(LdapException ex) =>
-        MapDiagnosticMessage(ex.ServerErrorMessage ?? ex.Message, resultCode: null, isInvalidCredentials: ex.ErrorCode == 49);
+        MapDiagnosticMessage(ex.ServerErrorMessage ?? ex.Message, ex.ErrorCode == 49 ? ResultCode.InvalidCredentials : null);
 
-    public PasswordChangeResult MapDiagnosticMessage(string diagnosticMessage, ResultCode? resultCode = null, bool isInvalidCredentials = false)
+    public PasswordChangeResult MapDiagnosticMessage(string diagnosticMessage, ResultCode? resultCode = null)
     {
         var message = diagnosticMessage ?? string.Empty;
         var lower = message.ToLowerInvariant();
@@ -29,7 +29,7 @@ public sealed class PasswordPolicyErrorMapper
             "533" => PasswordChangeResult.Fail(PasswordChangeResultCategory.DisabledAccount, "This account is disabled. Contact the service desk."),
             "775" => PasswordChangeResult.Fail(PasswordChangeResultCategory.LockedAccount, "This account is locked. Wait and try again, or contact the service desk."),
             _ when IsPasswordRestriction(resultCode, lower) => MapPasswordRestriction(lower),
-            _ when isInvalidCredentials => PasswordChangeResult.Fail(PasswordChangeResultCategory.InvalidCurrentPassword, "The current password is not correct."),
+            _ when resultCode == ResultCode.InvalidCredentials => PasswordChangeResult.Fail(PasswordChangeResultCategory.InvalidCurrentPassword, "The current password is not correct."),
             _ => PasswordChangeResult.Fail(PasswordChangeResultCategory.UnknownFailure, "The password could not be changed. Verify the information and try again.")
         };
     }
