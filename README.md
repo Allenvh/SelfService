@@ -8,6 +8,7 @@ This repository contains an original ASP.NET Core application for an internal, c
 - Active Directory password change over LDAP/LDAPS using `System.DirectoryServices.Protocols`.
 - User-context password change flow: the application binds with the submitted identity and current password, then issues an LDAP `unicodePwd` delete/add modify request.
 - Configurable domain, LDAP server, LDAP port, SSL, search base DN, allowed groups, and restricted groups.
+- Optional admin settings portal for updating domain configuration, allowed groups, restricted groups, LDAP communication settings, and temporary verbose troubleshooting logs.
 - Friendly error mapping for invalid credentials, missing users, disabled or locked accounts, expired password states, complexity failures, password history, and minimum-age failures.
 - HTTPS redirection, HSTS, CSRF validation, secure HTTP headers, per-IP and per-username rate limiting, and audit logging without passwords.
 - Optional Windows Event Log provider, configurable audit text log file, and CAPTCHA configuration placeholder.
@@ -63,10 +64,43 @@ Important settings:
     "Enabled": false,
     "Provider": "",
     "SiteKey": ""
+  },
+  "AdminPortal": {
+    "Enabled": false,
+    "SharedSecret": "",
+    "WritableSettingsPath": "appsettings.json"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "System.DirectoryServices.Protocols": "Warning",
+      "DirectorySelfService.Services.ActiveDirectoryPasswordService": "Information"
+    }
   }
 }
 ```
 
+
+## Admin settings portal
+
+The `/Admin` page can update the JSON settings used for Active Directory communication without editing the file by hand. It is disabled by default. To enable it, set:
+
+```json
+"AdminPortal": {
+  "Enabled": true,
+  "SharedSecret": "replace-with-a-long-random-admin-secret",
+  "WritableSettingsPath": "appsettings.json"
+}
+```
+
+The admin page requires the shared secret on every save and never writes that secret back to the JSON file. It can update:
+
+- `Directory:DefaultDomain`, `Directory:LdapServer`, `Directory:LdapPort`, `Directory:UseSsl`, `Directory:SearchBaseDn`, and `Directory:LdapTimeoutSeconds`.
+- `Directory:AllowedGroups` and `Directory:RestrictedGroups`; enter one group common name or distinguished name per line.
+- logging levels for the AD password-change service and `System.DirectoryServices.Protocols` so troubleshooting can temporarily use Debug/Trace verbosity. Disable verbose logging after troubleshooting because directory diagnostics can be noisy.
+
+The app pool identity must be able to write `AdminPortal:WritableSettingsPath` if you use the portal to save settings. Environment variables and IIS Configuration Editor values can override JSON; if those overrides exist, either update them too or recycle/restart after removing the override.
 
 ## Production hosting settings
 
@@ -133,9 +167,9 @@ dotnet test DirectorySelfService.sln -c Release
 - **User not found**: Verify `Directory:SearchBaseDn` includes the user object and that UPN or sAMAccountName formats are correct.
 - **Antiforgery token could not be decrypted**: Confirm `Hosting:DataProtectionKeysPath` points to a persistent folder that is not removed during publish and that the IIS application pool identity can read/write it. Refreshing the page clears stale browser tokens after the key store is fixed.
 - **Failed to determine the https port for redirect**: Set `Hosting:HttpsPort` or the `ASPNETCORE_HTTPS_PORT` environment variable to the IIS HTTPS port.
-- **Directory unavailable / LDAP error code 81**: Confirm `Directory:LdapServer` is a reachable domain controller DNS name, firewall access to `Directory:LdapPort` is open from the web server, and LDAPS certificates are trusted when `Directory:UseSsl` is `true`.
+- **Directory unavailable / LDAP error code 81**: Confirm `Directory:LdapServer` is a reachable domain controller DNS name, firewall access to `Directory:LdapPort` is open from the web server, and LDAPS certificates are trusted when `Directory:UseSsl` is `true`. Use `/Admin` to temporarily enable verbose directory logging while troubleshooting.
 - **Password policy failure**: Review domain password complexity, history, length, and minimum-age settings. The UI intentionally shows friendly messages instead of raw AD diagnostics.
-- **LDAPS failures**: Verify the domain controller certificate is valid, trusted by the IIS server, and has the correct DNS name.
+- **LDAPS failures**: Verify the domain controller certificate is valid, trusted by the IIS server, and has the correct DNS name. The password-change service logs LDAP server, port, SSL usage, search base, result codes, and group membership counts at Debug/Trace levels without logging passwords.
 - **Windows Event Log not receiving entries**: Enable `Audit:EnableWindowsEventLog`, create/register the event source if required by policy, and ensure the app pool identity has permission to write events.
 - **Audit text log not receiving entries**: Confirm `Audit:TextLogPath` is set to the expected file path and that the IIS application pool identity can create the folder and append to the file.
 
