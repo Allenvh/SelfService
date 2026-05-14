@@ -35,16 +35,34 @@ public sealed class ActiveDirectoryPasswordService(
 
         try
         {
+            var searchValue = normalizer.ToSearchValue(request.Username);
+            using var scope = logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["DirectoryServer"] = _options.LdapServer,
+                ["DirectoryPort"] = _options.LdapPort,
+                ["DirectoryUseSsl"] = _options.UseSsl,
+                ["DirectoryUseSigning"] = _options.UseSigning,
+                ["DirectoryUseSealing"] = _options.UseSealing,
+                ["DirectorySearchBaseDn"] = _options.SearchBaseDn,
+                ["DirectoryUserSearchValue"] = searchValue
+            });
+
+            LogConfigurationDiagnostics();
             using var connection = CreateConnection();
-            connection.Bind(new NetworkCredential(normalizer.ToBindIdentity(request.Username), request.CurrentPassword));
+            var bindIdentity = normalizer.ToBindIdentity(request.Username);
+            logger.LogDebug("Binding to directory as submitted user identity {BindIdentity}.", bindIdentity);
+            connection.Bind(new NetworkCredential(bindIdentity, request.CurrentPassword));
+            logger.LogDebug("Directory bind succeeded for submitted user identity.");
             cancellationToken.ThrowIfCancellationRequested();
 
             var entry = FindUser(connection, request.Username);
             if (entry is null)
             {
+                logger.LogInformation("Directory user search returned no entries.");
                 return PasswordChangeResult.Fail(PasswordChangeResultCategory.UserNotFound, "We could not find that user account.");
             }
 
+            logger.LogDebug("Directory user search found an entry with {MemberOfCount} direct group memberships.", GetValues(entry, "memberOf").Count());
             var groupResult = ValidateGroupMembership(entry);
             if (groupResult is not null)
             {
@@ -58,7 +76,9 @@ public sealed class ActiveDirectoryPasswordService(
                 return PasswordChangeResult.Fail(PasswordChangeResultCategory.UnknownFailure, "The password could not be changed. Contact the service desk.");
             }
 
+            logger.LogDebug("Sending password change modify request for directory entry {DistinguishedName}.", distinguishedName);
             ChangeUserPassword(connection, distinguishedName, request.CurrentPassword, request.NewPassword);
+            logger.LogDebug("Directory password change completed successfully for distinguishedName {DistinguishedName}.", distinguishedName);
             return PasswordChangeResult.Success("Your password has been changed.");
         }
         catch (DirectoryOperationException ex)
@@ -84,6 +104,7 @@ public sealed class ActiveDirectoryPasswordService(
 
     private LdapConnection CreateConnection()
     {
+        logger.LogDebug("Creating LDAP connection to {LdapServer}:{LdapPort}; UseSsl={UseSsl}; UseSigning={UseSigning}; UseSealing={UseSealing}; TimeoutSeconds={TimeoutSeconds}.", _options.LdapServer, _options.LdapPort, _options.UseSsl, _options.UseSigning, _options.UseSealing, _options.LdapTimeoutSeconds);
         var identifier = new LdapDirectoryIdentifier(_options.LdapServer, _options.LdapPort, true, false);
         var connection = new LdapConnection(identifier)
         {
@@ -94,9 +115,36 @@ public sealed class ActiveDirectoryPasswordService(
         connection.SessionOptions.SecureSocketLayer = _options.UseSsl;
         if (!_options.UseSsl)
         {
-            logger.LogWarning("LDAP SSL is disabled. Active Directory password changes normally require LDAPS or another encrypted channel.");
+            connection.SessionOptions.Signing = _options.UseSigning;
+            connection.SessionOptions.Sealing = _options.UseSealing;
+            logger.LogInformation("LDAPS is disabled; using LDAP with signing={UseSigning} and sealing={UseSealing}.", _options.UseSigning, _options.UseSealing);
         }
         return connection;
+    }
+
+    private void LogConfigurationDiagnostics()
+    {
+        if (string.IsNullOrWhiteSpace(_options.LdapServer))
+        {
+            logger.LogWarning("Directory:LdapServer is empty. Configure a reachable domain controller DNS name.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_options.SearchBaseDn))
+        {
+            logger.LogWarning("Directory:SearchBaseDn is empty. User searches cannot succeed until a base DN is configured.");
+        }
+
+        if (!_options.UseSsl && !_options.UseSealing)
+        {
+            logger.LogWarning("Directory:UseSsl and Directory:UseSealing are both false. Active Directory password changes require an encrypted channel.");
+        }
+
+        logger.LogDebug("Directory options loaded. DefaultDomain={DefaultDomain}; AllowedGroups={AllowedGroupCount}; RestrictedGroups={RestrictedGroupCount}; UseSigning={UseSigning}; UseSealing={UseSealing}.",
+            _options.DefaultDomain,
+            _options.AllowedGroups.Length,
+            _options.RestrictedGroups.Length,
+            _options.UseSigning,
+            _options.UseSealing);
     }
 
     private SearchResultEntry? FindUser(LdapConnection connection, string username)
@@ -106,6 +154,7 @@ public sealed class ActiveDirectoryPasswordService(
         var filter = searchValue.Contains('@')
             ? $"(&(objectClass=user)(userPrincipalName={escaped}))"
             : $"(&(objectClass=user)(sAMAccountName={escaped}))";
+        logger.LogDebug("Searching directory base {SearchBaseDn} with filter {SearchFilter}.", _options.SearchBaseDn, filter);
         var request = new SearchRequest(
             _options.SearchBaseDn,
             filter,
@@ -115,6 +164,7 @@ public sealed class ActiveDirectoryPasswordService(
             "userAccountControl",
             "lockoutTime");
         var response = (SearchResponse)connection.SendRequest(request);
+        logger.LogDebug("Directory search returned {EntryCount} entries with result code {ResultCode}.", response.Entries.Count, response.ResultCode);
         return response.Entries.Count == 0 ? null : response.Entries[0];
     }
 

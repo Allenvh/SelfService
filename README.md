@@ -5,9 +5,10 @@ This repository contains an original ASP.NET Core application for an internal, c
 ## Features
 
 - Razor Pages password change form for username/UPN, current password, new password, and confirmation.
-- Active Directory password change over LDAP/LDAPS using `System.DirectoryServices.Protocols`.
+- Active Directory password change over LDAP using `System.DirectoryServices.Protocols`, with LDAPS disabled by default and LDAP signing/sealing enabled for protected communication.
 - User-context password change flow: the application binds with the submitted identity and current password, then issues an LDAP `unicodePwd` delete/add modify request.
 - Configurable domain, LDAP server, LDAP port, SSL, search base DN, allowed groups, and restricted groups.
+- Optional admin settings portal for updating domain configuration, allowed groups, restricted groups, LDAP communication settings, and temporary verbose troubleshooting logs.
 - Friendly error mapping for invalid credentials, missing users, disabled or locked accounts, expired password states, complexity failures, password history, and minimum-age failures.
 - HTTPS redirection, HSTS, CSRF validation, secure HTTP headers, per-IP and per-username rate limiting, and audit logging without passwords.
 - Optional Windows Event Log provider, configurable audit text log file, and CAPTCHA configuration placeholder.
@@ -35,8 +36,10 @@ Important settings:
   "Directory": {
     "DefaultDomain": "CONTOSO",
     "LdapServer": "dc01.contoso.local",
-    "LdapPort": 636,
-    "UseSsl": true,
+    "LdapPort": 389,
+    "UseSsl": false,
+    "UseSigning": true,
+    "UseSealing": true,
     "SearchBaseDn": "DC=contoso,DC=local",
     "AllowedGroups": [],
     "RestrictedGroups": [ "Domain Admins", "Enterprise Admins", "Schema Admins" ],
@@ -63,10 +66,43 @@ Important settings:
     "Enabled": false,
     "Provider": "",
     "SiteKey": ""
+  },
+  "AdminPortal": {
+    "Enabled": false,
+    "SharedSecret": "",
+    "WritableSettingsPath": "appsettings.json"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "System.DirectoryServices.Protocols": "Warning",
+      "DirectorySelfService.Services.ActiveDirectoryPasswordService": "Information"
+    }
   }
 }
 ```
 
+
+## Admin settings portal
+
+The `/Admin` page can update the JSON settings used for Active Directory communication without editing the file by hand. It is disabled by default. To enable it, set:
+
+```json
+"AdminPortal": {
+  "Enabled": true,
+  "SharedSecret": "replace-with-a-long-random-admin-secret",
+  "WritableSettingsPath": "appsettings.json"
+}
+```
+
+The admin page requires the shared secret on every save and never writes that secret back to the JSON file. It can update:
+
+- `Directory:DefaultDomain`, `Directory:LdapServer`, `Directory:LdapPort`, `Directory:UseSsl`, `Directory:UseSigning`, `Directory:UseSealing`, `Directory:SearchBaseDn`, and `Directory:LdapTimeoutSeconds`.
+- `Directory:AllowedGroups` and `Directory:RestrictedGroups`; enter one group common name or distinguished name per line.
+- logging levels for the AD password-change service and `System.DirectoryServices.Protocols` so troubleshooting can temporarily use Debug/Trace verbosity. Disable verbose logging after troubleshooting because directory diagnostics can be noisy.
+
+The app pool identity must be able to write `AdminPortal:WritableSettingsPath` if you use the portal to save settings. Environment variables and IIS Configuration Editor values can override JSON; if those overrides exist, either update them too or recycle/restart after removing the override.
 
 ## Production hosting settings
 
@@ -78,7 +114,7 @@ The app stores ASP.NET Core Data Protection keys in `Hosting:DataProtectionKeysP
 
 The portal is intended to change passwords as the requesting user, not to perform an administrative password reset. The app validates the supplied current password by binding to LDAP with the submitted UPN or `DOMAIN\\username` identity. After a successful bind, it locates the user under `Directory:SearchBaseDn` and sends a `unicodePwd` delete/add operation with the old and new password values.
 
-AD normally requires LDAPS or an equivalent encrypted channel for `unicodePwd` changes. Set `Directory:UseSsl` to `true`, use port `636`, and ensure the domain controller has a server-authentication certificate trusted by the web server.
+LDAPS is disabled by default for this deployment profile. The default connection uses LDAP port `389` with Negotiate authentication plus LDAP signing and sealing (`Directory:UseSigning` and `Directory:UseSealing`) to provide the encrypted channel Active Directory requires for `unicodePwd` changes. If your domain policy requires LDAPS instead, set `Directory:UseSsl` to `true` and use port `636`.
 
 The IIS application pool identity does not need delegated reset-password rights for the normal flow. It does need permission to run the web app and read its files. Directory operations are performed after binding with the user's provided credentials.
 
@@ -133,9 +169,9 @@ dotnet test DirectorySelfService.sln -c Release
 - **User not found**: Verify `Directory:SearchBaseDn` includes the user object and that UPN or sAMAccountName formats are correct.
 - **Antiforgery token could not be decrypted**: Confirm `Hosting:DataProtectionKeysPath` points to a persistent folder that is not removed during publish and that the IIS application pool identity can read/write it. Refreshing the page clears stale browser tokens after the key store is fixed.
 - **Failed to determine the https port for redirect**: Set `Hosting:HttpsPort` or the `ASPNETCORE_HTTPS_PORT` environment variable to the IIS HTTPS port.
-- **Directory unavailable / LDAP error code 81**: Confirm `Directory:LdapServer` is a reachable domain controller DNS name, firewall access to `Directory:LdapPort` is open from the web server, and LDAPS certificates are trusted when `Directory:UseSsl` is `true`.
+- **Directory unavailable / LDAP error code 81**: Confirm `Directory:LdapServer` is a reachable domain controller DNS name, firewall access to `Directory:LdapPort` is open from the web server, and LDAP signing/sealing is allowed when `Directory:UseSsl` is `false`. Use `/Admin` to temporarily enable verbose directory logging while troubleshooting.
 - **Password policy failure**: Review domain password complexity, history, length, and minimum-age settings. The UI intentionally shows friendly messages instead of raw AD diagnostics.
-- **LDAPS failures**: Verify the domain controller certificate is valid, trusted by the IIS server, and has the correct DNS name.
+- **Encrypted LDAP failures**: With LDAPS disabled, keep `Directory:UseSigning` and `Directory:UseSealing` enabled so Negotiate binds can protect LDAP traffic on port `389`. If you re-enable LDAPS, verify the domain controller certificate is valid, trusted by the IIS server, and has the correct DNS name. The password-change service logs LDAP server, port, SSL usage, signing/sealing usage, search base, result codes, and group membership counts at Debug/Trace levels without logging passwords.
 - **Windows Event Log not receiving entries**: Enable `Audit:EnableWindowsEventLog`, create/register the event source if required by policy, and ensure the app pool identity has permission to write events.
 - **Audit text log not receiving entries**: Confirm `Audit:TextLogPath` is set to the expected file path and that the IIS application pool identity can create the folder and append to the file.
 

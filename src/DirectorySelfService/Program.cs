@@ -13,6 +13,7 @@ builder.Services.Configure<AuditOptions>(builder.Configuration.GetSection("Audit
 builder.Services.Configure<AppBrandingOptions>(builder.Configuration.GetSection("Branding"));
 builder.Services.Configure<CaptchaOptions>(builder.Configuration.GetSection("Captcha"));
 builder.Services.Configure<HostingOptions>(builder.Configuration.GetSection("Hosting"));
+builder.Services.Configure<AdminPortalOptions>(builder.Configuration.GetSection("AdminPortal"));
 
 var hostingOptions = builder.Configuration.GetSection("Hosting").Get<HostingOptions>() ?? new HostingOptions();
 if (hostingOptions.HttpsPort is > 0)
@@ -33,6 +34,7 @@ builder.Services.AddSingleton<PasswordPolicyErrorMapper>();
 builder.Services.AddSingleton<IRateLimitService, RateLimitService>();
 builder.Services.AddScoped<IActiveDirectoryPasswordService, ActiveDirectoryPasswordService>();
 builder.Services.AddSingleton<IAuditLogger, AuditLogger>();
+builder.Services.AddScoped<IAppSettingsWriter, AppSettingsWriter>();
 
 builder.Services.AddRazorPages(options =>
 {
