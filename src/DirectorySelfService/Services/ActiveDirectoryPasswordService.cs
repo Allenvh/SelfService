@@ -113,7 +113,9 @@ public sealed class ActiveDirectoryPasswordService(
         connection.SessionOptions.SecureSocketLayer = _options.UseSsl;
         if (!_options.UseSsl)
         {
-            logger.LogWarning("LDAP SSL is disabled. Active Directory password changes normally require LDAPS or another encrypted channel.");
+            connection.SessionOptions.Signing = _options.UseSigning;
+            connection.SessionOptions.Sealing = _options.UseSealing;
+            logger.LogInformation("LDAPS is disabled; using LDAP with signing={UseSigning} and sealing={UseSealing}.", _options.UseSigning, _options.UseSealing);
         }
         return connection;
     }

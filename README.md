@@ -5,7 +5,7 @@ This repository contains an original ASP.NET Core application for an internal, c
 ## Features
 
 - Razor Pages password change form for username/UPN, current password, new password, and confirmation.
-- Active Directory password change over LDAP/LDAPS using `System.DirectoryServices.Protocols`.
+- Active Directory password change over LDAP using `System.DirectoryServices.Protocols`, with LDAPS disabled by default and LDAP signing/sealing enabled for protected communication.
 - User-context password change flow: the application binds with the submitted identity and current password, then issues an LDAP `unicodePwd` delete/add modify request.
 - Configurable domain, LDAP server, LDAP port, SSL, search base DN, allowed groups, and restricted groups.
 - Optional admin settings portal for updating domain configuration, allowed groups, restricted groups, LDAP communication settings, and temporary verbose troubleshooting logs.
@@ -36,8 +36,10 @@ Important settings:
   "Directory": {
     "DefaultDomain": "CONTOSO",
     "LdapServer": "dc01.contoso.local",
-    "LdapPort": 636,
-    "UseSsl": true,
+    "LdapPort": 389,
+    "UseSsl": false,
+    "UseSigning": true,
+    "UseSealing": true,
     "SearchBaseDn": "DC=contoso,DC=local",
     "AllowedGroups": [],
     "RestrictedGroups": [ "Domain Admins", "Enterprise Admins", "Schema Admins" ],
@@ -112,7 +114,7 @@ The app stores ASP.NET Core Data Protection keys in `Hosting:DataProtectionKeysP
 
 The portal is intended to change passwords as the requesting user, not to perform an administrative password reset. The app validates the supplied current password by binding to LDAP with the submitted UPN or `DOMAIN\\username` identity. After a successful bind, it locates the user under `Directory:SearchBaseDn` and sends a `unicodePwd` delete/add operation with the old and new password values.
 
-AD normally requires LDAPS or an equivalent encrypted channel for `unicodePwd` changes. Set `Directory:UseSsl` to `true`, use port `636`, and ensure the domain controller has a server-authentication certificate trusted by the web server.
+LDAPS is disabled by default for this deployment profile. The default connection uses LDAP port `389` with Negotiate authentication plus LDAP signing and sealing (`Directory:UseSigning` and `Directory:UseSealing`) to provide the encrypted channel Active Directory requires for `unicodePwd` changes. If your domain policy requires LDAPS instead, set `Directory:UseSsl` to `true` and use port `636`.
 
 The IIS application pool identity does not need delegated reset-password rights for the normal flow. It does need permission to run the web app and read its files. Directory operations are performed after binding with the user's provided credentials.
 
