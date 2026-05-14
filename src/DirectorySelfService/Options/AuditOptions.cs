@@ -6,4 +6,5 @@ public sealed class AuditOptions
     public string UsernameHashSalt { get; set; } = "change-this-salt";
     public bool EnableWindowsEventLog { get; set; } = false;
     public string EventLogSource { get; set; } = "DirectorySelfService";
+    public string TextLogPath { get; set; } = string.Empty;
 }

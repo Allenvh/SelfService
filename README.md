@@ -10,7 +10,7 @@ This repository contains an original ASP.NET Core application for an internal, c
 - Configurable domain, LDAP server, LDAP port, SSL, search base DN, allowed groups, and restricted groups.
 - Friendly error mapping for invalid credentials, missing users, disabled or locked accounts, expired password states, complexity failures, password history, and minimum-age failures.
 - HTTPS redirection, HSTS, CSRF validation, secure HTTP headers, per-IP and per-username rate limiting, and audit logging without passwords.
-- Optional Windows Event Log provider and CAPTCHA configuration placeholder.
+- Optional Windows Event Log provider, configurable audit text log file, and CAPTCHA configuration placeholder.
 - MSTest unit tests for validation support services and password-policy error mapping. No live AD is required for these tests.
 
 ## Configuration
@@ -56,7 +56,8 @@ Important settings:
     "HashUsernames": true,
     "UsernameHashSalt": "replace-with-random-secret-salt",
     "EnableWindowsEventLog": false,
-    "EventLogSource": "DirectorySelfService"
+    "EventLogSource": "DirectorySelfService",
+    "TextLogPath": "C:\\ProgramData\\DirectorySelfService\\Logs\\audit.log"
   },
   "Captcha": {
     "Enabled": false,
@@ -88,6 +89,7 @@ Use `AllowedGroups` to restrict self-service to members of specific AD groups. U
 - Host only over HTTPS. The app enables HTTPS redirection and HSTS outside Development, but IIS should also require TLS.
 - Do not log request bodies. The app's structured audit logs include timestamp, username hash or normalized username, source IP, result category, and success flag only.
 - Replace `Audit:UsernameHashSalt` with a long random value before production use.
+- Set `Audit:TextLogPath` to the audit text file location that should receive password-change attempts in addition to the configured logging providers. Leave it empty to disable text-file audit logging. Grant the IIS application pool identity permission to create and append to the folder.
 - Keep `RestrictedGroups` populated for privileged accounts.
 - Rate limiting is in-memory and suitable for a single-node internal deployment. Use a shared limiter if you deploy multiple instances.
 - CAPTCHA settings are placeholders so an enterprise-approved provider can be integrated without changing the form contract.
@@ -135,6 +137,7 @@ dotnet test DirectorySelfService.sln -c Release
 - **Password policy failure**: Review domain password complexity, history, length, and minimum-age settings. The UI intentionally shows friendly messages instead of raw AD diagnostics.
 - **LDAPS failures**: Verify the domain controller certificate is valid, trusted by the IIS server, and has the correct DNS name.
 - **Windows Event Log not receiving entries**: Enable `Audit:EnableWindowsEventLog`, create/register the event source if required by policy, and ensure the app pool identity has permission to write events.
+- **Audit text log not receiving entries**: Confirm `Audit:TextLogPath` is set to the expected file path and that the IIS application pool identity can create the folder and append to the file.
 
 ## Clean-room statement
 
