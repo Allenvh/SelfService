@@ -5,7 +5,8 @@ param(
     [string] $AppPoolName = $SiteName,
     [int] $HttpsPort = 443,
     [string] $HostHeader = "",
-    [string] $CertificateThumbprint = ""
+    [string] $CertificateThumbprint = "",
+    [string] $DataProtectionKeysPath = "C:\ProgramData\DirectorySelfService\DataProtectionKeys"
 )
 
 Import-Module WebAdministration -ErrorAction Stop
@@ -14,12 +15,24 @@ if (-not (Test-Path $PhysicalPath)) {
     throw "Physical path '$PhysicalPath' does not exist. Publish the application before running this script."
 }
 
+if ($PSCmdlet.ShouldProcess($DataProtectionKeysPath, "Create Data Protection key directory")) {
+    New-Item -ItemType Directory -Path $DataProtectionKeysPath -Force | Out-Null
+}
+
 if ($PSCmdlet.ShouldProcess($AppPoolName, "Create or update IIS application pool")) {
     if (-not (Test-Path "IIS:\AppPools\$AppPoolName")) {
         New-WebAppPool -Name $AppPoolName | Out-Null
     }
     Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name managedRuntimeVersion -Value ""
     Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name processModel.identityType -Value ApplicationPoolIdentity
+}
+
+if ($PSCmdlet.ShouldProcess($DataProtectionKeysPath, "Grant app pool access to Data Protection keys")) {
+    $appPoolIdentity = "IIS AppPool\$AppPoolName"
+    & icacls $DataProtectionKeysPath /grant "${appPoolIdentity}:(OI)(CI)(M)" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to grant '$appPoolIdentity' access to '$DataProtectionKeysPath'."
+    }
 }
 
 if ($PSCmdlet.ShouldProcess($SiteName, "Create or update IIS site")) {
@@ -47,4 +60,4 @@ if ($CertificateThumbprint) {
     }
 }
 
-Write-Host "IIS site '$SiteName' is configured. Ensure HTTPS is required and appsettings.json contains production directory settings."
+Write-Host "IIS site '$SiteName' is configured. Ensure HTTPS is required, appsettings.json contains production directory settings, and Hosting:DataProtectionKeysPath is '$DataProtectionKeysPath'."

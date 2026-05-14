@@ -21,6 +21,7 @@ Edit `src/DirectorySelfService/appsettings.json` or provide environment variable
 $env:Directory__LdapServer = "dc01.corp.example.com"
 $env:Directory__SearchBaseDn = "DC=corp,DC=example,DC=com"
 $env:Audit__UsernameHashSalt = "use-a-long-random-secret"
+$env:Hosting__DataProtectionKeysPath = "C:\ProgramData\DirectorySelfService\DataProtectionKeys"
 ```
 
 Important settings:
@@ -41,6 +42,11 @@ Important settings:
     "RestrictedGroups": [ "Domain Admins", "Enterprise Admins", "Schema Admins" ],
     "LdapTimeoutSeconds": 15
   },
+  "Hosting": {
+    "HttpsPort": 443,
+    "DataProtectionKeysPath": "C:\\ProgramData\\DirectorySelfService\\DataProtectionKeys",
+    "DataProtectionApplicationName": "DirectorySelfService"
+  },
   "RateLimit": {
     "PermitLimit": 5,
     "WindowMinutes": 15,
@@ -59,6 +65,13 @@ Important settings:
   }
 }
 ```
+
+
+## Production hosting settings
+
+The app stores ASP.NET Core Data Protection keys in `Hosting:DataProtectionKeysPath`. Keep this folder outside the publish directory and grant the IIS application pool identity read/write access. Persistent keys allow antiforgery cookies that were issued before an app restart, recycle, or redeploy to be decrypted afterwards. If the folder is deleted or a different path/application name is used, existing browser antiforgery cookies become invalid and users may need to refresh the form.
+
+`Hosting:HttpsPort` configures the target port for HTTPS redirects. Set it to the external HTTPS port used by IIS, or set it to `null` only when HTTPS redirection is handled entirely before requests reach ASP.NET Core.
 
 ## Active Directory behavior and permissions
 
@@ -116,7 +129,9 @@ dotnet test DirectorySelfService.sln -c Release
 
 - **Invalid current password**: Confirm the user entered the correct UPN or `DOMAIN\\username` and current password.
 - **User not found**: Verify `Directory:SearchBaseDn` includes the user object and that UPN or sAMAccountName formats are correct.
-- **Directory unavailable**: Confirm firewall access to the configured domain controller and port.
+- **Antiforgery token could not be decrypted**: Confirm `Hosting:DataProtectionKeysPath` points to a persistent folder that is not removed during publish and that the IIS application pool identity can read/write it. Refreshing the page clears stale browser tokens after the key store is fixed.
+- **Failed to determine the https port for redirect**: Set `Hosting:HttpsPort` or the `ASPNETCORE_HTTPS_PORT` environment variable to the IIS HTTPS port.
+- **Directory unavailable / LDAP error code 81**: Confirm `Directory:LdapServer` is a reachable domain controller DNS name, firewall access to `Directory:LdapPort` is open from the web server, and LDAPS certificates are trusted when `Directory:UseSsl` is `true`.
 - **Password policy failure**: Review domain password complexity, history, length, and minimum-age settings. The UI intentionally shows friendly messages instead of raw AD diagnostics.
 - **LDAPS failures**: Verify the domain controller certificate is valid, trusted by the IIS server, and has the correct DNS name.
 - **Windows Event Log not receiving entries**: Enable `Audit:EnableWindowsEventLog`, create/register the event source if required by policy, and ensure the app pool identity has permission to write events.

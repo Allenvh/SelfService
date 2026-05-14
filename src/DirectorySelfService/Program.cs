@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using DirectorySelfService.Middleware;
 using DirectorySelfService.Options;
 using DirectorySelfService.Services;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,20 @@ builder.Services.Configure<RateLimitOptions>(builder.Configuration.GetSection("R
 builder.Services.Configure<AuditOptions>(builder.Configuration.GetSection("Audit"));
 builder.Services.Configure<AppBrandingOptions>(builder.Configuration.GetSection("Branding"));
 builder.Services.Configure<CaptchaOptions>(builder.Configuration.GetSection("Captcha"));
+builder.Services.Configure<HostingOptions>(builder.Configuration.GetSection("Hosting"));
+
+var hostingOptions = builder.Configuration.GetSection("Hosting").Get<HostingOptions>() ?? new HostingOptions();
+if (hostingOptions.HttpsPort is > 0)
+{
+    builder.Services.AddHttpsRedirection(options => options.HttpsPort = hostingOptions.HttpsPort);
+}
+
+if (!string.IsNullOrWhiteSpace(hostingOptions.DataProtectionKeysPath))
+{
+    builder.Services.AddDataProtection()
+        .SetApplicationName(hostingOptions.DataProtectionApplicationName)
+        .PersistKeysToFileSystem(new DirectoryInfo(hostingOptions.DataProtectionKeysPath));
+}
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<UsernameNormalizer>();
