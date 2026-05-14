@@ -98,7 +98,7 @@ The `/Admin` page can update the JSON settings used for Active Directory communi
 
 The admin page requires the shared secret on every save and never writes that secret back to the JSON file. It can update:
 
-- `Directory:DefaultDomain`, `Directory:LdapServer`, `Directory:LdapPort`, `Directory:UseSsl`, `Directory:UseSigning`, `Directory:UseSealing`, `Directory:SearchBaseDn`, and `Directory:LdapTimeoutSeconds`.
+- `Directory:DefaultDomain`, `Directory:LdapServer`, `Directory:LdapPort`, `Directory:UseSsl`, `Directory:SearchBaseDn`, and `Directory:LdapTimeoutSeconds`.
 - `Directory:AllowedGroups` and `Directory:RestrictedGroups`; enter one group common name or distinguished name per line.
 - logging levels for the AD password-change service and `System.DirectoryServices.Protocols` so troubleshooting can temporarily use Debug/Trace verbosity. Disable verbose logging after troubleshooting because directory diagnostics can be noisy.
 
@@ -169,9 +169,9 @@ dotnet test DirectorySelfService.sln -c Release
 - **User not found**: Verify `Directory:SearchBaseDn` includes the user object and that UPN or sAMAccountName formats are correct.
 - **Antiforgery token could not be decrypted**: Confirm `Hosting:DataProtectionKeysPath` points to a persistent folder that is not removed during publish and that the IIS application pool identity can read/write it. Refreshing the page clears stale browser tokens after the key store is fixed.
 - **Failed to determine the https port for redirect**: Set `Hosting:HttpsPort` or the `ASPNETCORE_HTTPS_PORT` environment variable to the IIS HTTPS port.
-- **Directory unavailable / LDAP error code 81**: Confirm `Directory:LdapServer` is a reachable domain controller DNS name, firewall access to `Directory:LdapPort` is open from the web server, and LDAP signing/sealing is allowed when `Directory:UseSsl` is `false`. Use `/Admin` to temporarily enable verbose directory logging while troubleshooting.
+- **Directory unavailable / LDAP error code 81**: Confirm `Directory:LdapServer` is a reachable domain controller DNS name, firewall access to `Directory:LdapPort` is open from the web server, and LDAPS certificates are trusted when `Directory:UseSsl` is `true`. Use `/Admin` to temporarily enable verbose directory logging while troubleshooting.
 - **Password policy failure**: Review domain password complexity, history, length, and minimum-age settings. The UI intentionally shows friendly messages instead of raw AD diagnostics.
-- **Encrypted LDAP failures**: With LDAPS disabled, keep `Directory:UseSigning` and `Directory:UseSealing` enabled so Negotiate binds can protect LDAP traffic on port `389`. If you re-enable LDAPS, verify the domain controller certificate is valid, trusted by the IIS server, and has the correct DNS name. The password-change service logs LDAP server, port, SSL usage, signing/sealing usage, search base, result codes, and group membership counts at Debug/Trace levels without logging passwords.
+- **LDAPS failures**: Verify the domain controller certificate is valid, trusted by the IIS server, and has the correct DNS name. The password-change service logs LDAP server, port, SSL usage, search base, result codes, and group membership counts at Debug/Trace levels without logging passwords.
 - **Windows Event Log not receiving entries**: Enable `Audit:EnableWindowsEventLog`, create/register the event source if required by policy, and ensure the app pool identity has permission to write events.
 - **Audit text log not receiving entries**: Confirm `Audit:TextLogPath` is set to the expected file path and that the IIS application pool identity can create the folder and append to the file.
 

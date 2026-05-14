@@ -41,8 +41,6 @@ public sealed class ActiveDirectoryPasswordService(
                 ["DirectoryServer"] = _options.LdapServer,
                 ["DirectoryPort"] = _options.LdapPort,
                 ["DirectoryUseSsl"] = _options.UseSsl,
-                ["DirectoryUseSigning"] = _options.UseSigning,
-                ["DirectoryUseSealing"] = _options.UseSealing,
                 ["DirectorySearchBaseDn"] = _options.SearchBaseDn,
                 ["DirectoryUserSearchValue"] = searchValue
             });
@@ -104,7 +102,7 @@ public sealed class ActiveDirectoryPasswordService(
 
     private LdapConnection CreateConnection()
     {
-        logger.LogDebug("Creating LDAP connection to {LdapServer}:{LdapPort}; UseSsl={UseSsl}; UseSigning={UseSigning}; UseSealing={UseSealing}; TimeoutSeconds={TimeoutSeconds}.", _options.LdapServer, _options.LdapPort, _options.UseSsl, _options.UseSigning, _options.UseSealing, _options.LdapTimeoutSeconds);
+        logger.LogDebug("Creating LDAP connection to {LdapServer}:{LdapPort}; UseSsl={UseSsl}; TimeoutSeconds={TimeoutSeconds}.", _options.LdapServer, _options.LdapPort, _options.UseSsl, _options.LdapTimeoutSeconds);
         var identifier = new LdapDirectoryIdentifier(_options.LdapServer, _options.LdapPort, true, false);
         var connection = new LdapConnection(identifier)
         {
@@ -134,17 +132,15 @@ public sealed class ActiveDirectoryPasswordService(
             logger.LogWarning("Directory:SearchBaseDn is empty. User searches cannot succeed until a base DN is configured.");
         }
 
-        if (!_options.UseSsl && !_options.UseSealing)
+        if (!_options.UseSsl)
         {
-            logger.LogWarning("Directory:UseSsl and Directory:UseSealing are both false. Active Directory password changes require an encrypted channel.");
+            logger.LogWarning("Directory:UseSsl is false. Password changes normally require LDAPS or another encrypted channel.");
         }
 
-        logger.LogDebug("Directory options loaded. DefaultDomain={DefaultDomain}; AllowedGroups={AllowedGroupCount}; RestrictedGroups={RestrictedGroupCount}; UseSigning={UseSigning}; UseSealing={UseSealing}.",
+        logger.LogDebug("Directory options loaded. DefaultDomain={DefaultDomain}; AllowedGroups={AllowedGroupCount}; RestrictedGroups={RestrictedGroupCount}.",
             _options.DefaultDomain,
             _options.AllowedGroups.Length,
-            _options.RestrictedGroups.Length,
-            _options.UseSigning,
-            _options.UseSealing);
+            _options.RestrictedGroups.Length);
     }
 
     private SearchResultEntry? FindUser(LdapConnection connection, string username)

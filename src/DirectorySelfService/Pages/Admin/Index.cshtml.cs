@@ -49,13 +49,11 @@ public sealed class IndexModel(
         }
 
         await settingsWriter.SaveDirectorySettingsAsync(Input, cancellationToken);
-        logger.LogInformation("Admin directory settings updated from {SourceIp}. LdapServer={LdapServer}; SearchBaseDn={SearchBaseDn}; UseSsl={UseSsl}; UseSigning={UseSigning}; UseSealing={UseSealing}; AllowedGroupCount={AllowedGroupCount}; RestrictedGroupCount={RestrictedGroupCount}; VerboseDirectoryLogging={VerboseDirectoryLogging}",
+        logger.LogInformation("Admin directory settings updated from {SourceIp}. LdapServer={LdapServer}; SearchBaseDn={SearchBaseDn}; UseSsl={UseSsl}; AllowedGroupCount={AllowedGroupCount}; RestrictedGroupCount={RestrictedGroupCount}; VerboseDirectoryLogging={VerboseDirectoryLogging}",
             HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             Input.LdapServer,
             Input.SearchBaseDn,
             Input.UseSsl,
-            Input.UseSigning,
-            Input.UseSealing,
             AppSettingsWriter.SplitLines(Input.AllowedGroupsText).Length,
             AppSettingsWriter.SplitLines(Input.RestrictedGroupsText).Length,
             Input.VerboseDirectoryLogging);
@@ -76,8 +74,6 @@ public sealed class IndexModel(
             LdapServer = directory.LdapServer,
             LdapPort = directory.LdapPort,
             UseSsl = directory.UseSsl,
-            UseSigning = directory.UseSigning,
-            UseSealing = directory.UseSealing,
             SearchBaseDn = directory.SearchBaseDn,
             LdapTimeoutSeconds = directory.LdapTimeoutSeconds,
             AllowedGroupsText = string.Join(Environment.NewLine, directory.AllowedGroups),

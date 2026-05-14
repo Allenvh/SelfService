@@ -38,8 +38,6 @@ public sealed class AppSettingsWriter(
             ["LdapServer"] = settings.LdapServer.Trim(),
             ["LdapPort"] = settings.LdapPort,
             ["UseSsl"] = settings.UseSsl,
-            ["UseSigning"] = settings.UseSigning,
-            ["UseSealing"] = settings.UseSealing,
             ["SearchBaseDn"] = settings.SearchBaseDn.Trim(),
             ["AllowedGroups"] = ToJsonArray(settings.AllowedGroupsText),
             ["RestrictedGroups"] = ToJsonArray(settings.RestrictedGroupsText),

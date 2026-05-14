@@ -44,19 +44,6 @@ else if (!Model.HasSharedSecret)
         </div>
     </div>
 
-    <div class="grid-two">
-        <div class="field checkbox-field">
-            <input asp-for="Input.UseSigning" />
-            <label asp-for="Input.UseSigning"></label>
-            <p class="help">Recommended when LDAPS is disabled.</p>
-        </div>
-        <div class="field checkbox-field">
-            <input asp-for="Input.UseSealing" />
-            <label asp-for="Input.UseSealing"></label>
-            <p class="help">Encrypts LDAP traffic for Negotiate binds when supported.</p>
-        </div>
-    </div>
-
     <div class="field">
         <label asp-for="Input.SearchBaseDn"></label>
         <input asp-for="Input.SearchBaseDn" placeholder="DC=corp,DC=example,DC=com" />

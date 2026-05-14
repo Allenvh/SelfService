@@ -13,16 +13,10 @@ public sealed class AdminDirectorySettings
 
     [Range(1, 65535)]
     [Display(Name = "LDAP port")]
-    public int LdapPort { get; set; } = 389;
+    public int LdapPort { get; set; } = 636;
 
     [Display(Name = "Use SSL / LDAPS")]
-    public bool UseSsl { get; set; }
-
-    [Display(Name = "Use LDAP signing")]
-    public bool UseSigning { get; set; } = true;
-
-    [Display(Name = "Use LDAP sealing")]
-    public bool UseSealing { get; set; } = true;
+    public bool UseSsl { get; set; } = true;
 
     [Required]
     [Display(Name = "Search base DN")]
