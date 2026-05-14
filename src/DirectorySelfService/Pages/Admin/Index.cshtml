@@ -1,0 +1,91 @@
+@page
+@model DirectorySelfService.Pages.Admin.IndexModel
+
+@if (!Model.PortalEnabled)
+{
+    <div class="message message-error" role="alert">The admin portal is disabled. Set <code>AdminPortal:Enabled</code> to <code>true</code> and configure <code>AdminPortal:SharedSecret</code> before using this page.</div>
+}
+else if (!Model.HasSharedSecret)
+{
+    <div class="message message-error" role="alert">The admin portal shared secret is not configured. Set <code>AdminPortal:SharedSecret</code> before saving settings.</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
+{
+    <div class="message @(Model.IsSuccess ? "message-success" : "message-error")" role="status">@Model.StatusMessage</div>
+}
+
+<p class="help">Use this portal to update domain connection settings, self-service group allow lists, privileged group restrictions, and temporary verbose logs for troubleshooting. Passwords and bind credentials are never stored here.</p>
+
+<form method="post" autocomplete="off" novalidate>
+    <div asp-validation-summary="ModelOnly"></div>
+
+    <div class="field">
+        <label asp-for="Input.DefaultDomain"></label>
+        <input asp-for="Input.DefaultDomain" placeholder="CONTOSO" />
+        <span asp-validation-for="Input.DefaultDomain"></span>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.LdapServer"></label>
+        <input asp-for="Input.LdapServer" placeholder="dc01.corp.example.com" />
+        <span asp-validation-for="Input.LdapServer"></span>
+    </div>
+
+    <div class="grid-two">
+        <div class="field">
+            <label asp-for="Input.LdapPort"></label>
+            <input asp-for="Input.LdapPort" inputmode="numeric" />
+            <span asp-validation-for="Input.LdapPort"></span>
+        </div>
+        <div class="field checkbox-field">
+            <input asp-for="Input.UseSsl" />
+            <label asp-for="Input.UseSsl"></label>
+        </div>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.SearchBaseDn"></label>
+        <input asp-for="Input.SearchBaseDn" placeholder="DC=corp,DC=example,DC=com" />
+        <span asp-validation-for="Input.SearchBaseDn"></span>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.LdapTimeoutSeconds"></label>
+        <input asp-for="Input.LdapTimeoutSeconds" inputmode="numeric" />
+        <span asp-validation-for="Input.LdapTimeoutSeconds"></span>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.AllowedGroupsText"></label>
+        <textarea asp-for="Input.AllowedGroupsText" rows="4" placeholder="Self Service Password Users"></textarea>
+        <p class="help">Leave empty to allow all non-restricted users. Enter one group CN or DN per line.</p>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.RestrictedGroupsText"></label>
+        <textarea asp-for="Input.RestrictedGroupsText" rows="4"></textarea>
+        <p class="help">Privileged accounts matching these group CNs or DNs cannot use self-service password changes.</p>
+    </div>
+
+    <div class="field checkbox-field">
+        <input asp-for="Input.VerboseDirectoryLogging" />
+        <label asp-for="Input.VerboseDirectoryLogging"></label>
+        <p class="help">Turns on Debug/Trace logging for the password-change flow and LDAP provider. Disable after troubleshooting.</p>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.SharedSecret"></label>
+        <input asp-for="Input.SharedSecret" autocomplete="off" />
+        <span asp-validation-for="Input.SharedSecret"></span>
+    </div>
+
+    @if (Model.PortalEnabled && Model.HasSharedSecret)
+    {
+        <button type="submit">Save directory settings</button>
+    }
+    else
+    {
+        <button type="submit" disabled>Save directory settings</button>
+    }
+</form>

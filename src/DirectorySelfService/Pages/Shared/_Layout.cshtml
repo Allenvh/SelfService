@@ -15,6 +15,10 @@
             <header class="card-header">
                 <p class="eyebrow">Internal self-service</p>
                 <h1>@Branding.Value.Title</h1>
+                <nav class="top-nav" aria-label="Portal navigation">
+                    <a asp-page="/Index">Password change</a>
+                    <a asp-page="/Admin/Index">Admin settings</a>
+                </nav>
             </header>
             @RenderBody()
         </section>

@@ -77,3 +77,57 @@ button:hover { filter: brightness(.95); }
 .message-success { background: #ecfdf3; color: var(--success); }
 .message-error { background: #fef3f2; color: var(--danger); }
 .help { color: var(--muted); font-size: .9rem; line-height: 1.45; }
+.top-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-top: 1rem;
+}
+.top-nav a {
+    color: var(--accent);
+    font-size: .92rem;
+    font-weight: 650;
+    text-decoration: none;
+}
+.top-nav a:hover { text-decoration: underline; }
+textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: .65rem;
+    font: inherit;
+    min-height: 6rem;
+    padding: .8rem .9rem;
+    resize: vertical;
+}
+textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 .2rem rgba(36, 84, 214, .14);
+    outline: none;
+}
+.grid-two {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: 1fr 1fr;
+}
+.checkbox-field {
+    align-content: center;
+    grid-template-columns: auto 1fr;
+}
+.checkbox-field input {
+    height: 1.1rem;
+    margin: .2rem .35rem 0 0;
+    width: 1.1rem;
+}
+.checkbox-field .help { grid-column: 1 / -1; }
+code {
+    background: #f2f4f7;
+    border-radius: .25rem;
+    padding: .05rem .25rem;
+}
+button:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+}
+@media (max-width: 42rem) {
+    .grid-two { grid-template-columns: 1fr; }
+}
