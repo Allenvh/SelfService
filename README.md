@@ -41,6 +41,8 @@ Important settings:
     "UseSigning": true,
     "UseSealing": true,
     "SearchBaseDn": "DC=contoso,DC=local",
+    "FirstLoginLookupUser": "",
+    "FirstLoginLookupPassword": "",
     "AllowedGroups": [],
     "RestrictedGroups": [ "Domain Admins", "Enterprise Admins", "Schema Admins" ],
     "LdapTimeoutSeconds": 15
@@ -98,7 +100,7 @@ The `/Admin` page can update the JSON settings used for Active Directory communi
 
 The admin page requires the shared secret on every save and never writes that secret back to the JSON file. It can update:
 
-- `Directory:DefaultDomain`, `Directory:LdapServer`, `Directory:LdapPort`, `Directory:UseSsl`, `Directory:SearchBaseDn`, and `Directory:LdapTimeoutSeconds`.
+- `Directory:DefaultDomain`, `Directory:LdapServer`, `Directory:LdapPort`, `Directory:UseSsl`, `Directory:SearchBaseDn`, and `Directory:LdapTimeoutSeconds`. Existing advanced directory keys such as `FirstLoginLookupUser` and `FirstLoginLookupPassword` are preserved when the admin portal saves settings.
 - `Directory:AllowedGroups` and `Directory:RestrictedGroups`; enter one group common name or distinguished name per line.
 - logging levels for the AD password-change service and `System.DirectoryServices.Protocols` so troubleshooting can temporarily use Debug/Trace verbosity. Disable verbose logging after troubleshooting because directory diagnostics can be noisy.
 
@@ -114,9 +116,11 @@ The app stores ASP.NET Core Data Protection keys in `Hosting:DataProtectionKeysP
 
 The portal is intended to change passwords as the requesting user, not to perform an administrative password reset. The app validates the supplied current password by binding to LDAP with the submitted UPN or `DOMAIN\\username` identity. After a successful bind, it locates the user under `Directory:SearchBaseDn` and sends a `unicodePwd` delete/add operation with the old and new password values.
 
+When Active Directory rejects the initial user bind because the account must change its password before first sign-in (LDAP diagnostic data `773`, or an expired-password `532` response), the app catches that condition and can retry the same old-password/new-password `unicodePwd` change on a connection bound with `Directory:FirstLoginLookupUser` and `Directory:FirstLoginLookupPassword`. Configure that lookup identity as a low-privilege domain account that can search `Directory:SearchBaseDn`; it still sends the user's submitted current password in the delete/add password-change operation and does not perform a password reset. If these settings are blank, users in this state receive a clear message asking them to contact the service desk instead of an unhandled or generic LDAP error. Prefer setting `Directory__FirstLoginLookupPassword` as an environment variable or protected IIS setting rather than storing it in JSON.
+
 LDAPS is disabled by default for this deployment profile. The default connection uses LDAP port `389` with Negotiate authentication plus LDAP signing and sealing (`Directory:UseSigning` and `Directory:UseSealing`) to provide the encrypted channel Active Directory requires for `unicodePwd` changes. If your domain policy requires LDAPS instead, set `Directory:UseSsl` to `true` and use port `636`.
 
-The IIS application pool identity does not need delegated reset-password rights for the normal flow. It does need permission to run the web app and read its files. Directory operations are performed after binding with the user's provided credentials.
+The IIS application pool identity does not need delegated reset-password rights for the normal flow. It does need permission to run the web app and read its files. Directory operations are performed after binding with the user's provided credentials, except for the optional first-login lookup connection described above.
 
 Use `AllowedGroups` to restrict self-service to members of specific AD groups. Use `RestrictedGroups` for high-risk groups that should never use this portal, such as domain administrators.
 

@@ -21,6 +21,15 @@ public sealed class PasswordPolicyErrorMapperTests
     }
 
     [TestMethod]
+    public void MapsMustChangePasswordDataCodeToPasswordExpired()
+    {
+        var result = _mapper.MapDiagnosticMessage("AcceptSecurityContext error, data 773, v2580", (ResultCode)InvalidCredentialsLdapResultCode);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(PasswordChangeResultCategory.PasswordExpired, result.Category);
+    }
+
+    [TestMethod]
     public void MapsLockedAccountDataCodeToLockedAccount()
     {
         var result = _mapper.MapDiagnosticMessage("LDAP error data 775", (ResultCode)InvalidCredentialsLdapResultCode);

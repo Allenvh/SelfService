@@ -1,6 +1,7 @@
 @using DirectorySelfService.Options
 @using Microsoft.Extensions.Options
 @inject IOptions<AppBrandingOptions> Branding
+@inject IOptions<AdminPortalOptions> AdminPortal
 <!doctype html>
 <html lang="en">
 <head>
@@ -17,7 +18,10 @@
                 <h1>@Branding.Value.Title</h1>
                 <nav class="top-nav" aria-label="Portal navigation">
                     <a asp-page="/Index">Password change</a>
-                    <a asp-page="/Admin/Index">Admin settings</a>
+                    @if (AdminPortal.Value.Enabled)
+                    {
+                        <a asp-page="/Admin/Index">Admin settings</a>
+                    }
                 </nav>
             </header>
             @RenderBody()
