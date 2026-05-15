@@ -49,35 +49,20 @@ public sealed class ActiveDirectoryPasswordService(
             using var connection = CreateConnection();
             var bindIdentity = normalizer.ToBindIdentity(request.Username);
             logger.LogDebug("Binding to directory as submitted user identity {BindIdentity}.", bindIdentity);
-            connection.Bind(new NetworkCredential(bindIdentity, request.CurrentPassword));
+            try
+            {
+                connection.Bind(new NetworkCredential(bindIdentity, request.CurrentPassword));
+            }
+            catch (LdapException ex) when (IsPasswordMustChangeException(ex))
+            {
+                logger.LogInformation(ex, "Directory requires the submitted user to change password before first sign-in. Trying first-login password change flow.");
+                return ChangeFirstLoginPassword(request, cancellationToken);
+            }
+
             logger.LogDebug("Directory bind succeeded for submitted user identity.");
             cancellationToken.ThrowIfCancellationRequested();
 
-            var entry = FindUser(connection, request.Username);
-            if (entry is null)
-            {
-                logger.LogInformation("Directory user search returned no entries.");
-                return PasswordChangeResult.Fail(PasswordChangeResultCategory.UserNotFound, "We could not find that user account.");
-            }
-
-            logger.LogDebug("Directory user search found an entry with {MemberOfCount} direct group memberships.", GetValues(entry, "memberOf").Count());
-            var groupResult = ValidateGroupMembership(entry);
-            if (groupResult is not null)
-            {
-                return groupResult;
-            }
-
-            var distinguishedName = GetString(entry, "distinguishedName");
-            if (string.IsNullOrWhiteSpace(distinguishedName))
-            {
-                logger.LogWarning("Directory entry found without a distinguishedName for a password change request.");
-                return PasswordChangeResult.Fail(PasswordChangeResultCategory.UnknownFailure, "The password could not be changed. Contact the service desk.");
-            }
-
-            logger.LogDebug("Sending password change modify request for directory entry {DistinguishedName}.", distinguishedName);
-            ChangeUserPassword(connection, distinguishedName, request.CurrentPassword, request.NewPassword);
-            logger.LogDebug("Directory password change completed successfully for distinguishedName {DistinguishedName}.", distinguishedName);
-            return PasswordChangeResult.Success("Your password has been changed.");
+            return ChangeBoundUserPassword(connection, request);
         }
         catch (DirectoryOperationException ex)
         {
@@ -98,6 +83,54 @@ public sealed class ActiveDirectoryPasswordService(
             logger.LogError(ex, "Unexpected directory password change failure.");
             return PasswordChangeResult.Fail(PasswordChangeResultCategory.DirectoryUnavailable, "The directory service is unavailable. Try again later.");
         }
+    }
+
+    private PasswordChangeResult ChangeFirstLoginPassword(PasswordChangeRequest request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_options.FirstLoginLookupUser) || string.IsNullOrWhiteSpace(_options.FirstLoginLookupPassword))
+        {
+            logger.LogWarning("The directory reported that the user must change password before first sign-in, but Directory:FirstLoginLookupUser or Directory:FirstLoginLookupPassword is not configured.");
+            return PasswordChangeResult.Fail(
+                PasswordChangeResultCategory.PasswordExpired,
+                "Your account requires a password change before first sign-in, but this portal is not configured for first-login password changes. Contact the service desk.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        using var lookupConnection = CreateConnection();
+        logger.LogDebug("Binding to directory with configured first-login lookup identity.");
+        lookupConnection.Bind(new NetworkCredential(_options.FirstLoginLookupUser, _options.FirstLoginLookupPassword));
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return ChangeBoundUserPassword(lookupConnection, request);
+    }
+
+    private PasswordChangeResult ChangeBoundUserPassword(LdapConnection connection, PasswordChangeRequest request)
+    {
+        var entry = FindUser(connection, request.Username);
+        if (entry is null)
+        {
+            logger.LogInformation("Directory user search returned no entries.");
+            return PasswordChangeResult.Fail(PasswordChangeResultCategory.UserNotFound, "We could not find that user account.");
+        }
+
+        logger.LogDebug("Directory user search found an entry with {MemberOfCount} direct group memberships.", GetValues(entry, "memberOf").Count());
+        var groupResult = ValidateGroupMembership(entry);
+        if (groupResult is not null)
+        {
+            return groupResult;
+        }
+
+        var distinguishedName = GetString(entry, "distinguishedName");
+        if (string.IsNullOrWhiteSpace(distinguishedName))
+        {
+            logger.LogWarning("Directory entry found without a distinguishedName for a password change request.");
+            return PasswordChangeResult.Fail(PasswordChangeResultCategory.UnknownFailure, "The password could not be changed. Contact the service desk.");
+        }
+
+        logger.LogDebug("Sending password change modify request for directory entry {DistinguishedName}.", distinguishedName);
+        ChangeUserPassword(connection, distinguishedName, request.CurrentPassword, request.NewPassword);
+        logger.LogDebug("Directory password change completed successfully for distinguishedName {DistinguishedName}.", distinguishedName);
+        return PasswordChangeResult.Success("Your password has been changed.");
     }
 
     private LdapConnection CreateConnection()
@@ -209,6 +242,14 @@ public sealed class ActiveDirectoryPasswordService(
         modify.Modifications[0].Add(EncodePassword(currentPassword));
         modify.Modifications[1].Add(EncodePassword(newPassword));
         connection.SendRequest(modify);
+    }
+
+    private static bool IsPasswordMustChangeException(LdapException ex)
+    {
+        var message = ex.ServerErrorMessage ?? ex.Message ?? string.Empty;
+        return ex.ErrorCode == 49 &&
+            (message.Contains("data 773", StringComparison.OrdinalIgnoreCase) ||
+             message.Contains("data 532", StringComparison.OrdinalIgnoreCase));
     }
 
     private static byte[] EncodePassword(string password) => Encoding.Unicode.GetBytes($"\"{password}\"");

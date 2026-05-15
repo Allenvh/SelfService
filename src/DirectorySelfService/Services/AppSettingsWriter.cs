@@ -32,25 +32,39 @@ public sealed class AppSettingsWriter(
             root = new JsonObject();
         }
 
-        root["Directory"] = new JsonObject
+        var directorySettings = root["Directory"] as JsonObject;
+        if (directorySettings is null)
         {
-            ["DefaultDomain"] = settings.DefaultDomain.Trim(),
-            ["LdapServer"] = settings.LdapServer.Trim(),
-            ["LdapPort"] = settings.LdapPort,
-            ["UseSsl"] = settings.UseSsl,
-            ["SearchBaseDn"] = settings.SearchBaseDn.Trim(),
-            ["AllowedGroups"] = ToJsonArray(settings.AllowedGroupsText),
-            ["RestrictedGroups"] = ToJsonArray(settings.RestrictedGroupsText),
-            ["LdapTimeoutSeconds"] = settings.LdapTimeoutSeconds
-        };
+            directorySettings = new JsonObject();
+            root["Directory"] = directorySettings;
+        }
 
-        var logging = root["Logging"] as JsonObject ?? new JsonObject();
-        var logLevel = logging["LogLevel"] as JsonObject ?? new JsonObject();
+        directorySettings["DefaultDomain"] = settings.DefaultDomain.Trim();
+        directorySettings["LdapServer"] = settings.LdapServer.Trim();
+        directorySettings["LdapPort"] = settings.LdapPort;
+        directorySettings["UseSsl"] = settings.UseSsl;
+        directorySettings["SearchBaseDn"] = settings.SearchBaseDn.Trim();
+        directorySettings["AllowedGroups"] = ToJsonArray(settings.AllowedGroupsText);
+        directorySettings["RestrictedGroups"] = ToJsonArray(settings.RestrictedGroupsText);
+        directorySettings["LdapTimeoutSeconds"] = settings.LdapTimeoutSeconds;
+
+        var logging = root["Logging"] as JsonObject;
+        if (logging is null)
+        {
+            logging = new JsonObject();
+            root["Logging"] = logging;
+        }
+
+        var logLevel = logging["LogLevel"] as JsonObject;
+        if (logLevel is null)
+        {
+            logLevel = new JsonObject();
+            logging["LogLevel"] = logLevel;
+        }
+
         logLevel["Default"] = settings.VerboseDirectoryLogging ? "Debug" : "Information";
         logLevel["DirectorySelfService.Services.ActiveDirectoryPasswordService"] = settings.VerboseDirectoryLogging ? "Trace" : "Information";
         logLevel["System.DirectoryServices.Protocols"] = settings.VerboseDirectoryLogging ? "Debug" : "Warning";
-        logging["LogLevel"] = logLevel;
-        root["Logging"] = logging;
 
         var directory = Path.GetDirectoryName(settingsPath);
         if (!string.IsNullOrWhiteSpace(directory))
