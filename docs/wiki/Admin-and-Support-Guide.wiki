@@ -1,0 +1,306 @@
+= Directory Self-Service: Admin and Support Guide =
+
+This page is the deployment, operations, and incident-triage runbook for the Directory Self-Service password portal. It is written in MediaWiki markup so it can be copied directly into a project wiki.
+
+For implementation details and contribution guidance, see [[Developer-Guide|Developer Guide]].
+
+__TOC__
+
+== What the service does ==
+
+The portal lets users who know their current Active Directory password change it without service-desk intervention. It does '''not''' provide an administrator password reset. By default, privileged groups are restricted, failed attempts are rate-limited, and audit records omit passwords.
+
+=== Known operational boundaries ===
+
+* Users must know their current password.
+* First-login/expired-password changes require the optional lookup identity described below.
+* Group allow/restrict rules inspect direct AD memberships, not nested memberships.
+* Rate-limit state is in memory and is not shared across servers or preserved across an app recycle.
+* <code>Captcha</code> settings are placeholders only; turning them on does not implement provider-side verification.
+* The admin page uses a shared secret and is disabled by default. It is not a replacement for network access controls or an authenticated administration product.
+
+== Production prerequisites ==
+
+* A supported Windows Server with IIS.
+* The .NET 8 Hosting Bundle installed on the IIS server.
+* A DNS name and trusted TLS certificate for the site.
+* Network access from the web server to the selected domain controller on TCP 389 (LDAP with signing/sealing) or TCP 636 (LDAPS).
+* A dedicated publish directory and a persistent Data Protection key directory outside it.
+* An AD test account that is non-privileged and representative of normal users.
+* Optional: a low-privilege directory lookup account for first-login password changes.
+
+== Deployment procedure ==
+
+=== 1. Publish the application ===
+
+From a trusted build workstation:
+
+<syntaxhighlight lang="powershell">
+dotnet restore .\DirectorySelfService.sln
+dotnet test .\DirectorySelfService.sln -c Release
+dotnet publish .\src\DirectorySelfService\DirectorySelfService.csproj `
+  -c Release `
+  -o C:\inetpub\DirectorySelfService
+</syntaxhighlight>
+
+=== 2. Configure IIS ===
+
+Run from an elevated PowerShell session on the server:
+
+<syntaxhighlight lang="powershell">
+.\deployment\Install-IisSite.ps1 `
+  -SiteName "DirectorySelfService" `
+  -PhysicalPath "C:\inetpub\DirectorySelfService" `
+  -HostHeader "passwords.corp.example.com" `
+  -CertificateThumbprint "CERTIFICATE_THUMBPRINT"
+</syntaxhighlight>
+
+The script creates or updates an application pool using <code>ApplicationPoolIdentity</code>, creates the persistent Data Protection directory, grants the pool modify permission to it, creates the site, and adds the HTTPS binding when a certificate thumbprint is supplied.
+
+After running it:
+
+# Confirm the certificate binding and hostname in IIS.
+# Require HTTPS and restrict HTTP according to organizational policy.
+# Ensure the application pool uses “No Managed Code”; ASP.NET Core hosts its own runtime.
+# Restrict site access to intended internal networks if the portal is internal-only.
+# Do not delete the Data Protection directory during a deployment.
+
+=== 3. Configure production settings ===
+
+Use <code>appsettings.example.json</code> as the template. Prefer environment variables or protected IIS configuration for secrets. ASP.NET Core environment variable names use <code>__</code> between nested keys, for example:
+
+<syntaxhighlight lang="powershell">
+[Environment]::SetEnvironmentVariable("Directory__LdapServer", "dc01.corp.example.com", "Machine")
+[Environment]::SetEnvironmentVariable("Directory__SearchBaseDn", "DC=corp,DC=example,DC=com", "Machine")
+[Environment]::SetEnvironmentVariable("Audit__UsernameHashSalt", "LONG_RANDOM_DEPLOYMENT_SECRET", "Machine")
+[Environment]::SetEnvironmentVariable("Directory__FirstLoginLookupPassword", "LOOKUP_ACCOUNT_SECRET", "Machine")
+</syntaxhighlight>
+
+Recycle the application pool after changing machine-level environment variables.
+
+=== 4. Set filesystem permissions ===
+
+The IIS application pool identity needs:
+
+* read/execute permission on the published application;
+* modify permission on <code>Hosting:DataProtectionKeysPath</code>;
+* create/append permission on the parent directory of <code>Audit:TextLogPath</code>, when enabled;
+* write permission on <code>AdminPortal:WritableSettingsPath</code>, only when admin-page saves are enabled.
+
+Do not grant the application pool broad domain privileges or AD password-reset rights. Normal directory operations bind as the requesting user.
+
+=== 5. Validate before release ===
+
+# Browse to the HTTPS URL and confirm there are no certificate warnings.
+# Confirm HTTP redirects as intended and the response contains the security headers.
+# Change the password of a non-privileged pilot account.
+# Confirm both the user-facing success message and an audit event with <code>category=Success</code>.
+# Test an incorrect current password and confirm a safe message and failed audit event.
+# Confirm a restricted-group account is denied; do not use a production privileged credential for this test.
+# Restart/recycle the app and confirm the form still works without antiforgery decryption errors.
+# Confirm that no password appears in console, text, IIS, or Windows Event logs.
+
+== Configuration reference ==
+
+=== Branding ===
+
+{| class="wikitable"
+! Key !! Purpose !! Operational guidance
+|-
+| <code>Branding:Title</code> || Page title displayed to users. || Use the approved service name.
+|-
+| <code>Branding:SupportContact</code> || Support contact displayed by the UI. || Give a monitored desk name or contact route; do not use a personal account.
+|}
+
+=== Directory ===
+
+{| class="wikitable"
+! Key !! Purpose !! Guidance
+|-
+| <code>DefaultDomain</code> || Prefix for a bare username during bind. || Use the AD NetBIOS domain name, such as <code>CONTOSO</code>. UPN and qualified names are left unchanged.
+|-
+| <code>LdapServer</code> || Domain controller DNS name. || Use a resolvable, reachable name. With LDAPS, it must match/trust the DC certificate.
+|-
+| <code>LdapPort</code> || LDAP endpoint port. || Normally <code>389</code> with signing/sealing or <code>636</code> with LDAPS.
+|-
+| <code>UseSsl</code> || Enables LDAPS. || When false, retain signing and sealing unless an approved security design says otherwise.
+|-
+| <code>UseSigning</code> / <code>UseSealing</code> || Protect non-LDAPS LDAP traffic. || Defaults are true. These advanced keys are not editable on the admin page.
+|-
+| <code>SearchBaseDn</code> || Subtree in which users are searched. || Scope it to the required users, for example <code>OU=Users,DC=contoso,DC=local</code>.
+|-
+| <code>FirstLoginLookupUser</code> / <code>FirstLoginLookupPassword</code> || Search identity used after AD reports an expired/must-change password. || Use a low-privilege read-only identity. Store the password in a protected provider, not JSON.
+|-
+| <code>AllowedGroups</code> || Optional allowlist. || Empty means no allowlist. Entries may be group common names or distinguished names and match direct memberships only.
+|-
+| <code>RestrictedGroups</code> || Denylist evaluated before allowlist. || Keep privileged groups listed. Entries match common names or distinguished names and direct memberships only.
+|-
+| <code>LdapTimeoutSeconds</code> || LDAP operation timeout. || Default <code>15</code>; admin page validation allows 1–120 seconds.
+|}
+
+=== Hosting and abuse controls ===
+
+{| class="wikitable"
+! Key !! Purpose !! Guidance
+|-
+| <code>Hosting:HttpsPort</code> || HTTPS redirect target. || Match the externally visible IIS HTTPS port. Use <code>null</code> only when a trusted upstream handles redirects.
+|-
+| <code>Hosting:DataProtectionKeysPath</code> || Persistent ASP.NET Core key ring. || Keep outside the publish directory; back it up/protect it and grant the app pool modify access.
+|-
+| <code>Hosting:DataProtectionApplicationName</code> || Isolates the key ring. || Keep stable across redeployments and identical only among instances intentionally sharing cookies.
+|-
+| <code>RateLimit:PermitLimit</code> || Failed attempts per IP in an application window. || Default <code>5</code>. The global request limit uses twice this value.
+|-
+| <code>RateLimit:UsernamePermitLimit</code> || Failed attempts per normalized username. || Default <code>5</code>.
+|-
+| <code>RateLimit:WindowMinutes</code> || Fixed attempt window duration. || Default <code>15</code>.
+|}
+
+=== Audit, logging, CAPTCHA, and admin page ===
+
+{| class="wikitable"
+! Key !! Purpose !! Guidance
+|-
+| <code>Audit:HashUsernames</code> || Stores a hash instead of the normalized username. || Keep true unless policy requires otherwise.
+|-
+| <code>Audit:UsernameHashSalt</code> || Salt used before SHA-256 hashing. || Replace the example with a long deployment-specific secret; keep it stable if correlation across events is required.
+|-
+| <code>Audit:EnableWindowsEventLog</code> || Adds the Windows Event Log provider on Windows. || Ensure the source exists/is permitted according to local policy.
+|-
+| <code>Audit:EventLogSource</code> || Windows event source name. || Default <code>DirectorySelfService</code>.
+|-
+| <code>Audit:TextLogPath</code> || Optional append-only audit file. || Empty disables it. Grant only required filesystem access and include it in retention/rotation controls.
+|-
+| <code>Logging:LogLevel</code> || Framework and service diagnostic levels. || Keep production levels conservative; use verbose levels only during a bounded investigation.
+|-
+| <code>Captcha:*</code> || Future integration placeholders. || They do not currently validate a CAPTCHA challenge.
+|-
+| <code>AdminPortal:Enabled</code> || Enables saves from <code>/Admin</code>. || Default false; enable only when needed and combine with network restrictions.
+|-
+| <code>AdminPortal:SharedSecret</code> || Secret required on every admin save. || Use a long random secret in a protected configuration provider.
+|-
+| <code>AdminPortal:WritableSettingsPath</code> || JSON file modified by the admin page. || Relative paths resolve below the application content root. Back up and tightly permission the file.
+|}
+
+== Admin settings page procedure ==
+
+The <code>/Admin</code> page can update the domain/server, LDAP port and SSL choice, search base, timeout, group lists, and directory logging verbosity.
+
+# Set <code>AdminPortal:Enabled=true</code> and configure a long shared secret outside the writable JSON file when possible.
+# Grant the app pool write access to <code>WritableSettingsPath</code>.
+# Restrict access to the admin URL at the network/proxy layer.
+# Open <code>https://service-name/Admin</code>, review every field, enter the secret, and save.
+# Check the success message and application logs.
+# Verify effective configuration. Environment variables and IIS settings override JSON, so a successful file write may not change an overridden value.
+# Turn verbose logging off as soon as troubleshooting is complete.
+# Disable the portal again when routine browser-based administration is not required.
+
+The shared secret is never written back by the page. Existing advanced directory settings are preserved. Saving uses a temporary file and replacement, but operators should still retain a known-good configuration backup.
+
+== Routine operations ==
+
+=== Daily/regular checks ===
+
+* Monitor site health, IIS/application pool availability, TLS certificate expiry, and domain-controller reachability.
+* Review audit categories for unusual rates of invalid credentials, rate limiting, directory unavailability, or restricted-group attempts.
+* Confirm disk space and log rotation for the text audit path and platform logs.
+* Confirm the Data Protection key directory remains present and writable.
+* Review permissions and configured secrets according to the organization's rotation schedule.
+
+=== Safe redeployment ===
+
+# Back up configuration and record environment/IIS overrides.
+# Preserve the Data Protection key directory and audit files; they must not live inside the directory being replaced.
+# Publish to a staging directory and apply production configuration.
+# Stop or drain the site, swap the publish directory, then start/recycle the pool.
+# Run the validation checklist with a pilot account.
+# Keep the previous artifact and configuration available for rollback.
+
+=== Rollback ===
+
+# Stop or drain the site.
+# Restore the previous application artifact and its compatible configuration.
+# Do not roll back/delete the persistent Data Protection key ring merely to roll back code.
+# Recycle the application pool.
+# Validate HTTPS, the password-change flow, and audit output.
+# Record the rollback and retain relevant logs for investigation.
+
+== Audit records ==
+
+A password attempt is logged in this shape:
+
+<pre>
+PasswordChangeAttempt timestamp=2026-10-05T12:34:56.0000000+00:00 user=&lt;hash-or-normalized-user&gt; sourceIp=192.0.2.10 category=InvalidCurrentPassword success=False
+</pre>
+
+Expected fields are timestamp, user hash/name, source IP, result category, and success flag. Passwords are not expected. Treat logs as security data because IP addresses and stable username hashes can still be sensitive.
+
+Common categories include <code>Success</code>, <code>InvalidRequest</code>, <code>InvalidCurrentPassword</code>, <code>UserNotFound</code>, <code>DisabledAccount</code>, <code>LockedAccount</code>, <code>PasswordExpired</code>, <code>ComplexityFailure</code>, <code>PasswordHistoryViolation</code>, <code>MinimumAgeViolation</code>, <code>NotAllowedByGroup</code>, <code>RestrictedGroup</code>, <code>RateLimited</code>, <code>DirectoryUnavailable</code>, and <code>UnknownFailure</code>.
+
+== Support triage ==
+
+Before changing configuration, record the UTC time, username in the form the user entered (through an approved secure support channel), source location/IP if policy permits, displayed message, audit category, affected scope, and recent deployment/configuration changes. Never request or record either password.
+
+{| class="wikitable"
+! Symptom/category !! Checks !! Response
+|-
+| Incorrect current password / <code>InvalidCurrentPassword</code> || Confirm username format and whether another device recently changed the password. || Ask the user to retry carefully. Follow account-recovery policy; never ask for the password.
+|-
+| User not found / <code>UserNotFound</code> || Confirm UPN or sAMAccountName, <code>SearchBaseDn</code>, replication, and that the object is a user. || Correct the identifier or search scope. Escalate directory inconsistencies.
+|-
+| Disabled or locked || Check AD account state and lockout source under normal identity procedures. || Follow unlock/enable policy; do not bypass controls in the portal.
+|-
+| Expired/first-login password || Check whether both first-login lookup settings exist and the lookup identity can bind/search. || Repair/rotate the low-privilege lookup credential or use the approved assisted change process.
+|-
+| Complexity/history/minimum age || Review the effective domain/fine-grained password policy and recent password change time. || Explain the applicable rule without exposing sensitive policy detail; do not weaken policy for the portal.
+|-
+| Not allowed/restricted group || Inspect direct <code>memberOf</code> and configured lists, including CN/DN spelling. || Change membership/configuration only through approved access management. Restricted wins over allowed.
+|-
+| Rate limited || Correlate IP and username failures within the configured in-memory window. || Wait for expiry and investigate repeated failures. A recycle clears state but should not be used as routine bypass.
+|-
+| Directory unavailable / LDAP 81 || Test DNS, route/firewall, port, DC health, timeout, and certificate trust for LDAPS. || Restore connectivity or point to an approved healthy DC; escalate to directory/network teams.
+|-
+| Antiforgery token cannot be decrypted || Confirm Data Protection path, permissions, application name, and whether keys were deleted during deployment. || Restore key access, then have the user refresh. Preserve the key ring across future releases.
+|-
+| HTTPS redirect port warning || Compare external port with <code>Hosting:HttpsPort</code> and proxy forwarding design. || Set the correct port, or use <code>null</code> only when the upstream owns redirection.
+|-
+| Audit text log absent || Check configured path, parent directory, app-pool identity permissions, disk space, and application error logs. || Restore append permission/space. Logging failure does not expose the user's password but must be remediated.
+|-
+| Admin save has no effect || Check the written file, application log, environment variables, IIS configuration, and content root. || Update/remove the higher-precedence override and recycle if needed.
+|-
+| Generic/unknown failure || Correlate timestamp and category; temporarily increase only directory/protocol log categories. || Reproduce with a test account, capture sanitized diagnostics, disable verbose logging, and escalate to development/directory support.
+|}
+
+== Bounded verbose diagnostics ==
+
+Use verbose logging only for an active, approved investigation:
+
+# Record current logging levels.
+# Enable the admin-page verbose option, or set the password service to <code>Trace</code> and <code>System.DirectoryServices.Protocols</code> to <code>Debug</code>.
+# Reproduce once with a non-privileged test account where possible.
+# Capture only the relevant time window and sanitize identifiers before transferring logs.
+# Restore production levels immediately and verify the effective configuration.
+
+The application is designed not to log passwords, but verbose logs can include LDAP server/search details, bind identity, distinguished names, and group counts. Handle them accordingly.
+
+== Escalation package ==
+
+Provide the next support tier with:
+
+* UTC timestamps and correlation window;
+* application version/commit or deployment artifact identifier;
+* affected and unaffected scope;
+* user-facing message and audit category;
+* sanitized application/IIS/Event Log excerpts;
+* effective non-secret settings (server, port, SSL/signing/sealing, search base, timeout, group rule presence);
+* DNS/port/certificate test results;
+* recent deployment, group, policy, certificate, firewall, or domain-controller changes;
+* steps already attempted and their outcomes.
+
+Never include current/new passwords, shared secrets, lookup credentials, raw secret-bearing configuration, or unapproved directory exports.
+
+== Related pages ==
+
+* [[Developer-Guide|Developer Guide]]
+* Repository <code>README.md</code>
+* <code>appsettings.example.json</code>

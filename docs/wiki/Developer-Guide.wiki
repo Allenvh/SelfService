@@ -1,0 +1,205 @@
+= Directory Self-Service: Developer Guide =
+
+This page explains how to build, test, debug, and extend the Directory Self-Service password portal. It is written in MediaWiki markup so it can be copied directly into a project wiki.
+
+For deployment and day-to-day operation, see [[Admin-and-Support-Guide|Admin and Support Guide]].
+
+__TOC__
+
+== Purpose and supported workflow ==
+
+The application is an ASP.NET Core 8 Razor Pages site that lets an Active Directory user change their own password. It is a password '''change''', not an administrative reset:
+
+# The user submits a username, current password, and new password.
+# The application binds to LDAP as that user, proving knowledge of the current password.
+# It searches for the user's directory entry below the configured search base.
+# It applies group and account-state restrictions.
+# It submits an atomic <code>unicodePwd</code> delete/add modify request containing the old and new passwords.
+
+An optional first-login path handles AD diagnostic codes <code>532</code> and <code>773</code>. It uses a low-privilege lookup identity to find the entry, but the password operation still includes the user's current password and remains a change rather than a privileged reset.
+
+== Prerequisites ==
+
+* .NET 8 SDK or newer.
+* Git.
+* Windows and connectivity to an Active Directory domain controller for integration testing. Unit tests do not require AD.
+* PowerShell and IIS only when testing the production deployment path.
+
+Confirm the SDK:
+
+<syntaxhighlight lang="powershell">
+dotnet --info
+</syntaxhighlight>
+
+== Repository layout ==
+
+{| class="wikitable"
+! Path !! Responsibility
+|-
+| <code>src/DirectorySelfService/Program.cs</code> || Dependency injection, logging, Data Protection, global IP rate limiting, middleware, and Razor Pages registration.
+|-
+| <code>src/DirectorySelfService/Pages</code> || User and admin Razor Pages. Page models coordinate validation, services, audit events, and UI status.
+|-
+| <code>src/DirectorySelfService/Services/ActiveDirectoryPasswordService.cs</code> || LDAP bind, user lookup, authorization checks, and password modification.
+|-
+| <code>src/DirectorySelfService/Services/PasswordPolicyErrorMapper.cs</code> || Converts LDAP result and AD diagnostic codes into safe user-facing categories and messages.
+|-
+| <code>src/DirectorySelfService/Services/RateLimitService.cs</code> || In-memory failed-attempt limits by source IP and normalized username.
+|-
+| <code>src/DirectorySelfService/Services/AuditLogger.cs</code> || Structured audit events, optional username hashing, and optional text-file output.
+|-
+| <code>src/DirectorySelfService/Services/AppSettingsWriter.cs</code> || Atomic JSON updates initiated by the optional admin page.
+|-
+| <code>src/DirectorySelfService/Options</code> || Strongly typed configuration sections.
+|-
+| <code>tests/DirectorySelfService.Tests</code> || MSTest unit tests for support services; no live directory is required.
+|-
+| <code>deployment/Install-IisSite.ps1</code> || IIS site, application pool, HTTPS binding, and Data Protection directory setup.
+|}
+
+== Local build and test ==
+
+Run from the repository root:
+
+<syntaxhighlight lang="powershell">
+dotnet restore DirectorySelfService.sln
+dotnet build DirectorySelfService.sln -c Release --no-restore
+dotnet test DirectorySelfService.sln -c Release --no-build
+</syntaxhighlight>
+
+To run locally without contacting AD merely to inspect the UI:
+
+<syntaxhighlight lang="powershell">
+dotnet run --project .\src\DirectorySelfService\DirectorySelfService.csproj
+</syntaxhighlight>
+
+Use the URL printed by ASP.NET Core. A submitted password change will fail unless the configured directory is reachable. Never use production credentials in a developer workstation configuration.
+
+=== Developer configuration and secrets ===
+
+ASP.NET Core configuration precedence applies. In practice, use environment variables or .NET user secrets for developer-only secrets rather than committing them. Nested environment keys use double underscores:
+
+<syntaxhighlight lang="powershell">
+dotnet user-secrets --project .\src\DirectorySelfService set "Directory:FirstLoginLookupUser" "CONTOSO\svc-password-lookup"
+dotnet user-secrets --project .\src\DirectorySelfService set "Directory:FirstLoginLookupPassword" "use-a-local-secret"
+$env:Directory__LdapServer = "dc01.contoso.local"
+$env:Directory__SearchBaseDn = "DC=contoso,DC=local"
+</syntaxhighlight>
+
+Do not commit a real lookup password, admin shared secret, audit salt, certificate, or captured user password.
+
+== Request flow ==
+
+=== Application pipeline ===
+
+<code>Program.cs</code> performs the following major steps:
+
+# Binds the seven option sections: <code>Directory</code>, <code>RateLimit</code>, <code>Audit</code>, <code>Branding</code>, <code>Captcha</code>, <code>Hosting</code>, and <code>AdminPortal</code>.
+# Configures persistent Data Protection keys when a path is supplied.
+# Registers service implementations and automatic antiforgery validation.
+# Configures HSTS and an ASP.NET Core global fixed-window limiter partitioned by IP.
+# Selects console logging and, optionally on Windows, Windows Event Log.
+# Adds exception handling in non-Development environments, HTTPS redirection, security headers, static files, routing, rate limiting, and Razor Pages.
+
+The global limiter permits twice <code>RateLimit:PermitLimit</code> requests per IP per window. The application-level <code>RateLimitService</code> separately counts unsuccessful password attempts by IP and username. These layers are intentionally distinct.
+
+=== Password-change path ===
+
+<code>Pages/Index.cshtml.cs</code> validates the model, checks application-level rate limits, calls <code>IActiveDirectoryPasswordService</code>, writes an audit result, and either clears counters after success or records a failure.
+
+<code>ActiveDirectoryPasswordService</code> then:
+
+# Rejects mismatched new passwords or a new password equal to the current password.
+# Normalizes the identity. A bare username becomes <code>DefaultDomain\username</code> for bind; UPN and domain-qualified names remain unchanged.
+# Connects with LDAP v3 and Negotiate authentication.
+# Uses LDAPS when <code>UseSsl</code> is true; otherwise it applies the configured LDAP signing and sealing settings.
+# Binds as the user, or invokes the configured first-login flow for AD codes <code>532</code>/<code>773</code>.
+# Escapes the lookup value and searches by <code>userPrincipalName</code> or <code>sAMAccountName</code> below <code>SearchBaseDn</code>.
+# Checks direct <code>memberOf</code> values against restricted groups first and allowed groups second, then checks disabled and locked flags.
+# sends the quoted UTF-16LE old/new values in one LDAP modify request.
+# Maps expected directory failures to <code>PasswordChangeResultCategory</code> values without exposing raw diagnostics to the browser.
+
+'''Important:''' group filtering currently evaluates direct <code>memberOf</code> values. Do not document or assume nested-group expansion unless the implementation is changed and tested.
+
+=== First-login flow ===
+
+When a normal bind reports that the password is expired or must change at first sign-in, a bind with that user can be unusable for the subsequent search. If both <code>Directory:FirstLoginLookupUser</code> and <code>Directory:FirstLoginLookupPassword</code> are configured, the service binds a second connection with that lookup identity and performs the normal lookup and old/new password modify. The identity should only have permission to search the configured subtree. Keep its password outside JSON in production.
+
+== Configuration model ==
+
+The canonical example is <code>appsettings.example.json</code>. When adding a setting:
+
+# Add a property to the relevant class under <code>Options</code>.
+# Bind a new section in <code>Program.cs</code> only if no existing section is appropriate.
+# Add a safe example/default to both example and application settings as needed.
+# Add validation or fail-fast behavior if an invalid value would be unsafe.
+# Update both wiki guides and the README when the setting affects operators.
+# Add tests for parsing and behavior.
+
+The admin writer intentionally updates only its supported subset of directory and logging keys. It preserves unrelated JSON keys, including first-login credentials and LDAP signing/sealing. If an admin-editable setting is added, update the input model, Razor Page, writer, and writer tests together.
+
+== Security invariants for changes ==
+
+Preserve these constraints during development and review:
+
+* Never log current or new passwords, request bodies, shared secrets, or lookup credentials.
+* Keep automatic antiforgery validation on state-changing Razor Page requests.
+* Require an encrypted/protected LDAP channel for password operations. Do not silently turn off both LDAPS and signing/sealing.
+* Escape all user-controlled LDAP filter values; do not concatenate raw input into a filter.
+* Restricted-group checks take priority over allowed-group checks.
+* Use constant-time comparison for the admin secret.
+* Keep Data Protection keys outside the publish folder in production.
+* Preserve secure headers when adding middleware, scripts, images, or external resources. Update the Content Security Policy deliberately rather than broadly weakening it.
+* Audit results and categories, not secrets. Hash usernames with a deployment-specific salt when configured.
+* Treat CAPTCHA configuration as a placeholder: enabling it does not provide CAPTCHA verification until a provider is implemented server-side.
+
+== Extending the application ==
+
+=== Adding a result category ===
+
+# Add the value to <code>PasswordChangeResultCategory</code>.
+# Return it from the responsible service or from <code>PasswordPolicyErrorMapper</code>.
+# Use a user-safe message that does not reveal directory internals.
+# Add mapper/service tests for the exact diagnostic condition and fallback behavior.
+# Add the category and support response to the admin/support guide.
+
+=== Adding an admin-editable field ===
+
+# Add a validated property to <code>AdminDirectorySettings</code>.
+# Render it in <code>Pages/Admin/Index.cshtml</code>.
+# Populate it from <code>IOptionsSnapshot</code> in the page model.
+# Write it in <code>AppSettingsWriter</code> without deleting unrelated settings.
+# Test creation, update, preservation, normalization, and cancellation/error behavior.
+# Document whether an app recycle is required and whether another provider can override it.
+
+=== Integrating CAPTCHA ===
+
+The existing options and UI indicator do not validate a challenge. A complete integration must render the approved provider's challenge, validate the token server-side before any LDAP call, handle provider outages safely, avoid logging tokens, update CSP allowlists narrowly, and include automated tests. Do not represent <code>Captcha:Enabled=true</code> as protection until those pieces exist.
+
+== Testing strategy ==
+
+Unit tests should remain independent of a live domain. Prefer constructor-injected abstractions and <code>TimeProvider</code> for deterministic tests. At minimum, changes should cover:
+
+* happy path and boundary cases;
+* safe mapping of LDAP and AD diagnostics;
+* case-insensitive identity/group handling where applicable;
+* rate-window expiry, success reset, and IP/username separation;
+* audit hashing, sanitization, and no-secret output;
+* JSON preservation and atomic settings writes.
+
+Live-directory testing should use disposable, non-privileged accounts in a test OU. Exercise bare username, UPN, and <code>DOMAIN\username</code> formats; allowed/restricted direct membership; locked and disabled accounts; policy failures; expired/first-login passwords; LDAP signing/sealing or LDAPS; rate limiting; and audit output. Never run destructive directory tests against privileged or production accounts.
+
+== Pull-request checklist ==
+
+* Build and all unit tests pass in Release configuration.
+* New behavior has automated coverage or the PR explains why it cannot.
+* No secrets, credentials, directory dumps, logs containing identities, or build artifacts are committed.
+* Configuration examples and both audience-specific wiki pages are current.
+* Security behavior, failure paths, and logging have been reviewed.
+* Any IIS or AD integration change has a documented rollback and manual verification plan.
+
+== Related pages ==
+
+* [[Admin-and-Support-Guide|Admin and Support Guide]]
+* Repository <code>README.md</code>
+* <code>appsettings.example.json</code>
