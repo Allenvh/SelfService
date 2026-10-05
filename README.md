@@ -2,6 +2,13 @@
 
 This repository contains an original ASP.NET Core application for an internal, company-owned Active Directory password change portal. It is designed for domain-joined Windows Server and IIS hosting. The implementation uses documented Microsoft/.NET APIs and does not import, reference, fork, copy, or depend on any third-party self-service password reset project.
 
+## Wiki documentation
+
+MediaWiki-formatted how-to documentation is available for two audiences:
+
+- [Developer Guide](docs/wiki/Developer-Guide.wiki) — architecture, local setup, request flow, security invariants, extension guidance, and testing.
+- [Admin and Support Guide](docs/wiki/Admin-and-Support-Guide.wiki) — deployment, configuration, routine operations, audit interpretation, troubleshooting, and escalation.
+
 ## Features
 
 - Razor Pages password change form for username/UPN, current password, new password, and confirmation.
